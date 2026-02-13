@@ -8,10 +8,3 @@ public class Item
     public string description;
     public int rarity; // Ampliación requerida por la práctica
 }
-
-public class InventoryEntry
-{
-    public int itemID;
-    public string itemName;
-    public int itemQuantity;
-}

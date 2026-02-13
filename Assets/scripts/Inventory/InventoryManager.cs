@@ -2,48 +2,51 @@ using UnityEngine;
 using UnityEngine.UI;
 using System.Collections.Generic;
 
-public class InventoryManager : MonoBehaviour
+public class InventoryManager : MonoBehaviour   
 {
-    [Header("Referencias")]
     public InventoryRepository repo;
-    public Transform container; // El 'Content' del ScrollView
-    public GameObject rowPrefab; // Prefab con Textos (NameText, QtyText) y Botón (DeleteBtn)
+    public Transform panelContainer; 
+    public GameObject itemSlotPrefab;
 
-    // Este ID debe ser el que obtuviste en el Login de la Actividad 1
-    private int currentUserId = 1;
+    public int currentUserId = 1;
 
-    void Start()
+    void Start() { RefreshUI(); }
+
+    public void AddItem(int id)
     {
-        RefreshUI();
-    }
-
-    // Método para los botones de la UI
-    public void OnClickAddItem(int id)
-    {
-        repo.SaveOrUpdateItem(currentUserId, id, 1);
-        RefreshUI();
+        bool success = repo.SaveOrUpdateItem(currentUserId, id, 1);
+        if (success)
+        {
+            RefreshUI();
+        }
+        else
+        {
+            Debug.Log("Inventario lleno: Máximo 14 objetos diferentes.");
+        }
     }
 
     public void RefreshUI()
     {
-        // 1. Limpiar la lista visual
-        foreach (Transform child in container) Destroy(child.gameObject);
+        foreach (Transform child in panelContainer) Destroy(child.gameObject);
 
-        // 2. Cargar datos desde la base de datos
-        List<InventoryEntry> items = repo.GetUserInventory(currentUserId);
+        List<InventoryEntry> items = repo.GetInventory(currentUserId);
 
-        // 3. Crear los elementos en la UI
         foreach (var item in items)
         {
-            GameObject go = Instantiate(rowPrefab, container);
+            GameObject slot = Instantiate(itemSlotPrefab, panelContainer);
 
-            // Asignar textos
-            go.transform.Find("NameText").GetComponent<Text>().text = item.itemName;
-            go.transform.Find("QtyText").GetComponent<Text>().text = "x" + item.itemQuantity;
 
-            // Configurar botón de borrar de cada fila
+            slot.transform.Find("NameText").GetComponent<Text>().text = item.itemName;
+            slot.transform.Find("QtyText").GetComponent<Text>().text = "x" + item.itemQuantity;
+
+            Sprite icon = Resources.Load<Sprite>(item.spriteName);
+            if (icon != null)
+            {
+                slot.transform.Find("IconImage").GetComponent<Image>().sprite = icon;
+            }
+
             int idParaBorrar = item.itemID;
-            go.transform.Find("DeleteBtn").GetComponent<Button>().onClick.AddListener(() => {
+            slot.transform.Find("DeleteBtn").GetComponent<Button>().onClick.AddListener(() => {
                 repo.DeleteItem(currentUserId, idParaBorrar);
                 RefreshUI();
             });

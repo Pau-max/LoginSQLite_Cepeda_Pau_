@@ -2,15 +2,30 @@ using System.Data;
 using Mono.Data.Sqlite;
 using UnityEngine;
 using System.Collections.Generic;
+using System.IO; // Necesario para manejar rutas de archivos
 
 public class InventoryRepository : MonoBehaviour
 {
     private string dbPath;
+    private const int MAX_SLOTS = 15;
 
     void Awake()
     {
-        // La base de datos es local y se conserva al cerrar el juego
-        dbPath = "URI=file:" + Application.persistentDataPath + "/RPG_Database.db";
+        // 1. Definimos la carpeta Plugins dentro de Assets
+        string folderPath = Path.Combine(Application.dataPath, "Plugins");
+
+        // 2. Creamos la carpeta si no existe (por si acaso)
+        if (!Directory.Exists(folderPath))
+        {
+            Directory.CreateDirectory(folderPath);
+        }
+
+        // 3. Construimos la ruta completa al archivo .db
+        string filePath = Path.Combine(folderPath, "RPG_Database.db");
+        dbPath = "URI=file:" + filePath;
+
+        Debug.Log("Base de datos ubicada en: " + filePath);
+
         InitializeDB();
     }
 
@@ -21,92 +36,71 @@ public class InventoryRepository : MonoBehaviour
             conn.Open();
             using (var cmd = conn.CreateCommand())
             {
-                // 1. Crear tabla Items (según tu diagrama + ampliación rarity)
-                cmd.CommandText = @"CREATE TABLE IF NOT EXISTS Items (
-                    itemID INTEGER PRIMARY KEY AUTOINCREMENT, 
-                    itemName TEXT, 
-                    description TEXT,
-                    rarity INTEGER DEFAULT 1
-                );";
+                // Activamos Foreign Keys para mantener integridad
+                cmd.CommandText = "PRAGMA foreign_keys = ON;";
                 cmd.ExecuteNonQuery();
 
-                // 2. Crear tabla Inventory (según tu diagrama)
-                cmd.CommandText = @"CREATE TABLE IF NOT EXISTS Inventory (
-                    inventoryID INTEGER PRIMARY KEY AUTOINCREMENT, 
-                    userID INTEGER NOT NULL, 
-                    itemID INTEGER NOT NULL, 
-                    itemQuantity INTEGER DEFAULT 1,
-                    UNIQUE(userID, itemID)
-                );";
+                // Creación de tablas
+                cmd.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS Items (
+                        itemID INTEGER PRIMARY KEY, 
+                        itemName TEXT, 
+                        description TEXT, 
+                        spriteName TEXT, 
+                        rarity INTEGER
+                    );
+                    CREATE TABLE IF NOT EXISTS Inventory (
+                        userID INTEGER, 
+                        itemID INTEGER, 
+                        itemQuantity INTEGER, 
+                        PRIMARY KEY(userID, itemID)
+                    );";
                 cmd.ExecuteNonQuery();
 
-                // 3. Insertar items base si la tabla está vacía
-                cmd.CommandText = "SELECT COUNT(*) FROM Items";
-                if (System.Convert.ToInt32(cmd.ExecuteScalar()) == 0)
-                {
-                    cmd.CommandText = @"INSERT INTO Items (itemName, description, rarity) VALUES 
-                        ('Poción Roja', 'Cura 50 HP', 1), 
-                        ('Espada de Hierro', 'Ataque +10', 2),
-                        ('Escudo Viejo', 'Defensa +5', 1);";
-                    cmd.ExecuteNonQuery();
-                }
+
+                cmd.CommandText = "INSERT OR IGNORE INTO Items VALUES (1, 'Pocion', 'Cura HP', 'Pocion', 1), (2, 'Espada', 'Ataque +5', 'Espada', 2);";
+                cmd.ExecuteNonQuery();
             }
         }
     }
 
-    // CRUD: CREATE / UPDATE (Añadir o modificar cantidad automáticamente)
-    public void SaveOrUpdateItem(int uID, int iID, int qty)
+    public bool SaveOrUpdateItem(int uID, int iID, int qty)
     {
         using (var conn = new SqliteConnection(dbPath))
         {
             conn.Open();
+
+
+            using (var checkCmd = conn.CreateCommand())
+            {
+                checkCmd.CommandText = "SELECT COUNT(*) FROM Inventory WHERE userID = @u";
+                checkCmd.Parameters.Add(new SqliteParameter("@u", uID));
+                int currentSlots = System.Convert.ToInt32(checkCmd.ExecuteScalar());
+
+                checkCmd.CommandText = "SELECT COUNT(*) FROM Inventory WHERE userID = @u AND itemID = @i";
+                checkCmd.Parameters.Add(new SqliteParameter("@i", iID));
+                bool alreadyHasItem = System.Convert.ToInt32(checkCmd.ExecuteScalar()) > 0;
+
+                if (!alreadyHasItem && currentSlots >= MAX_SLOTS)
+                {
+                    Debug.LogWarning("Inventario lleno. Máximo 15 slots.");
+                    return false;
+                }
+            }
+
             using (var cmd = conn.CreateCommand())
             {
-                // SQL que guarda cambios automáticamente: Si existe suma, si no crea
-                cmd.CommandText = @"INSERT INTO Inventory (userID, itemID, itemQuantity) 
-                                   VALUES (@u, @i, @q) 
-                                   ON CONFLICT(userID, itemID) 
-                                   DO UPDATE SET itemQuantity = itemQuantity + @q";
+                cmd.CommandText = @"INSERT INTO Inventory (userID, itemID, itemQuantity) VALUES (@u, @i, @q) 
+                                   ON CONFLICT(userID, itemID) DO UPDATE SET itemQuantity = itemQuantity + @q";
                 cmd.Parameters.Add(new SqliteParameter("@u", uID));
                 cmd.Parameters.Add(new SqliteParameter("@i", iID));
                 cmd.Parameters.Add(new SqliteParameter("@q", qty));
                 cmd.ExecuteNonQuery();
+                return true;
             }
         }
     }
 
-    // CRUD: READ (Cargar inventario dependiente del usuario)
-    public List<InventoryEntry> GetUserInventory(int uID)
-    {
-        List<InventoryEntry> list = new List<InventoryEntry>();
-        using (var conn = new SqliteConnection(dbPath))
-        {
-            conn.Open();
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.CommandText = @"SELECT i.itemID, i.itemName, inv.itemQuantity 
-                                   FROM Inventory inv 
-                                   JOIN Items i ON inv.itemID = i.itemID 
-                                   WHERE inv.userID = @u";
-                cmd.Parameters.Add(new SqliteParameter("@u", uID));
-                using (var reader = cmd.ExecuteReader())
-                {
-                    while (reader.Read())
-                    {
-                        list.Add(new InventoryEntry
-                        {
-                            itemID = reader.GetInt32(0),
-                            itemName = reader.GetString(1),
-                            itemQuantity = reader.GetInt32(2)
-                        });
-                    }
-                }
-            }
-        }
-        return list;
-    }
-
-    // CRUD: DELETE (Eliminar objeto)
     public void DeleteItem(int uID, int iID)
     {
         using (var conn = new SqliteConnection(dbPath))
@@ -121,4 +115,43 @@ public class InventoryRepository : MonoBehaviour
             }
         }
     }
+
+    public List<InventoryEntry> GetInventory(int uID)
+    {
+        List<InventoryEntry> list = new List<InventoryEntry>();
+        using (var conn = new SqliteConnection(dbPath))
+        {
+            conn.Open();
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = @"SELECT i.itemID, i.itemName, inv.itemQuantity, i.spriteName 
+                                    FROM Inventory inv 
+                                    JOIN Items i ON inv.itemID = i.itemID 
+                                    WHERE inv.userID = @u";
+                cmd.Parameters.Add(new SqliteParameter("@u", uID));
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        list.Add(new InventoryEntry
+                        {
+                            itemID = reader.GetInt32(0),
+                            itemName = reader.GetString(1),
+                            itemQuantity = reader.GetInt32(2),
+                            spriteName = reader.GetString(3)
+                        });
+                    }
+                }
+            }
+        }
+        return list;
+    }
+}
+
+public class InventoryEntry
+{
+    public int itemID;
+    public string itemName;
+    public int itemQuantity;
+    public string spriteName;
 }
