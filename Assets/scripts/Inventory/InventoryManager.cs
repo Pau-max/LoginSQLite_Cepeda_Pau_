@@ -8,21 +8,18 @@ public class InventoryManager : MonoBehaviour
     public Transform panelContainer; 
     public GameObject itemSlotPrefab;
 
-    public int currentUserId = 1;
+    [Header("Usuario Actual")]
+    public int currentUserId; 
 
-    void Start() { RefreshUI(); }
+    void Start() 
+    { 
+        if(currentUserId != 0) RefreshUI(); 
+    }
 
     public void AddItem(int id)
     {
-        bool success = repo.SaveOrUpdateItem(currentUserId, id, 1);
-        if (success)
-        {
-            RefreshUI();
-        }
-        else
-        {
-            Debug.Log("Inventario lleno: Máximo 14 objetos diferentes.");
-        }
+        repo.SaveOrUpdateItem(currentUserId, id, 1);
+        RefreshUI();
     }
 
     public void RefreshUI()
@@ -35,21 +32,22 @@ public class InventoryManager : MonoBehaviour
         {
             GameObject slot = Instantiate(itemSlotPrefab, panelContainer);
 
+            
+            slot.GetComponentInChildren<Text>().text = item.itemName; 
+            
+            var qtyText = slot.transform.Find("QtyText")?.GetComponent<Text>();
+            if(qtyText != null) qtyText.text = "x" + item.itemQuantity;
 
-            slot.transform.Find("NameText").GetComponent<Text>().text = item.itemName;
-            slot.transform.Find("QtyText").GetComponent<Text>().text = "x" + item.itemQuantity;
-
-            Sprite icon = Resources.Load<Sprite>(item.spriteName);
-            if (icon != null)
+            
+            Button delBtn = slot.transform.Find("DeleteBtn")?.GetComponent<Button>();
+            if(delBtn != null)
             {
-                slot.transform.Find("IconImage").GetComponent<Image>().sprite = icon;
+                int idObj = item.itemID;
+                delBtn.onClick.AddListener(() => {
+                    repo.RemoveOneItem(currentUserId, idObj);
+                    RefreshUI();
+                });
             }
-
-            int idParaBorrar = item.itemID;
-            slot.transform.Find("DeleteBtn").GetComponent<Button>().onClick.AddListener(() => {
-                repo.DeleteItem(currentUserId, idParaBorrar);
-                RefreshUI();
-            });
         }
     }
 }

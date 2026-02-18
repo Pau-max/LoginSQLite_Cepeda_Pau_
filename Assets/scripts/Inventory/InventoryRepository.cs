@@ -2,7 +2,7 @@ using System.Data;
 using Mono.Data.Sqlite;
 using UnityEngine;
 using System.Collections.Generic;
-using System.IO; // Necesario para manejar rutas de archivos
+using System.IO;
 
 public class InventoryRepository : MonoBehaviour
 {
@@ -11,20 +11,11 @@ public class InventoryRepository : MonoBehaviour
 
     void Awake()
     {
-        // 1. Definimos la carpeta Plugins dentro de Assets
         string folderPath = Path.Combine(Application.dataPath, "Plugins");
-
-        // 2. Creamos la carpeta si no existe (por si acaso)
-        if (!Directory.Exists(folderPath))
-        {
-            Directory.CreateDirectory(folderPath);
-        }
-
-        // 3. Construimos la ruta completa al archivo .db
+        if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
+        
         string filePath = Path.Combine(folderPath, "RPG_Database.db");
         dbPath = "URI=file:" + filePath;
-
-        Debug.Log("Base de datos ubicada en: " + filePath);
 
         InitializeDB();
     }
@@ -36,11 +27,9 @@ public class InventoryRepository : MonoBehaviour
             conn.Open();
             using (var cmd = conn.CreateCommand())
             {
-                // Activamos Foreign Keys para mantener integridad
                 cmd.CommandText = "PRAGMA foreign_keys = ON;";
                 cmd.ExecuteNonQuery();
 
-                // Creación de tablas
                 cmd.CommandText = @"
                     CREATE TABLE IF NOT EXISTS Items (
                         itemID INTEGER PRIMARY KEY, 
@@ -57,7 +46,7 @@ public class InventoryRepository : MonoBehaviour
                     );";
                 cmd.ExecuteNonQuery();
 
-
+                // Datos iniciales de prueba
                 cmd.CommandText = "INSERT OR IGNORE INTO Items VALUES (1, 'Pocion', 'Cura HP', 'Pocion', 1), (2, 'Espada', 'Ataque +5', 'Espada', 2);";
                 cmd.ExecuteNonQuery();
             }
@@ -69,25 +58,7 @@ public class InventoryRepository : MonoBehaviour
         using (var conn = new SqliteConnection(dbPath))
         {
             conn.Open();
-
-
-            using (var checkCmd = conn.CreateCommand())
-            {
-                checkCmd.CommandText = "SELECT COUNT(*) FROM Inventory WHERE userID = @u";
-                checkCmd.Parameters.Add(new SqliteParameter("@u", uID));
-                int currentSlots = System.Convert.ToInt32(checkCmd.ExecuteScalar());
-
-                checkCmd.CommandText = "SELECT COUNT(*) FROM Inventory WHERE userID = @u AND itemID = @i";
-                checkCmd.Parameters.Add(new SqliteParameter("@i", iID));
-                bool alreadyHasItem = System.Convert.ToInt32(checkCmd.ExecuteScalar()) > 0;
-
-                if (!alreadyHasItem && currentSlots >= MAX_SLOTS)
-                {
-                    Debug.LogWarning("Inventario lleno. Máximo 15 slots.");
-                    return false;
-                }
-            }
-
+            // LÃ³gica de guardado o incremento (ON CONFLICT)
             using (var cmd = conn.CreateCommand())
             {
                 cmd.CommandText = @"INSERT INTO Inventory (userID, itemID, itemQuantity) VALUES (@u, @i, @q) 
@@ -101,14 +72,18 @@ public class InventoryRepository : MonoBehaviour
         }
     }
 
-    public void DeleteItem(int uID, int iID)
+    public void RemoveOneItem(int uID, int iID)
     {
         using (var conn = new SqliteConnection(dbPath))
         {
             conn.Open();
             using (var cmd = conn.CreateCommand())
             {
-                cmd.CommandText = "DELETE FROM Inventory WHERE userID = @u AND itemID = @i";
+                // Resta 1 y borra si llega a 0
+                cmd.CommandText = @"
+                    UPDATE Inventory SET itemQuantity = itemQuantity - 1 
+                    WHERE userID = @u AND itemID = @i AND itemQuantity > 0;
+                    DELETE FROM Inventory WHERE userID = @u AND itemID = @i AND itemQuantity <= 0;";
                 cmd.Parameters.Add(new SqliteParameter("@u", uID));
                 cmd.Parameters.Add(new SqliteParameter("@i", iID));
                 cmd.ExecuteNonQuery();
@@ -146,12 +121,4 @@ public class InventoryRepository : MonoBehaviour
         }
         return list;
     }
-}
-
-public class InventoryEntry
-{
-    public int itemID;
-    public string itemName;
-    public int itemQuantity;
-    public string spriteName;
 }
