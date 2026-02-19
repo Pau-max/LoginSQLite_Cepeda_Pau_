@@ -6,56 +6,34 @@ using System.IO;
 [DefaultExecutionOrder(-100)]
 public class CrearBaseDatos : MonoBehaviour
 {
-    [Header("Configuración")]
-    public bool borrarDatosAlIniciar = true; 
-
     private void Start()
     {
-        CreateDatabase();
-    }
+        // Definimos la ruta hacia Assets/Plugins
+        string directoryPath = Path.Combine(Application.dataPath, "Plugins");
+        string dbPath = Path.Combine(directoryPath, "UserAndInventory.sqlite");
 
-    private void CreateDatabase()
-    {
-        string dbPath = Application.persistentDataPath + "/MyDatabase.sqlite";
-
-        if (borrarDatosAlIniciar && File.Exists(dbPath))
+        // Aseguramos que la carpeta Plugins exista
+        if (!Directory.Exists(directoryPath)) 
         {
-            File.Delete(dbPath);
-            Debug.Log("Base de datos anterior borrada");
+            Directory.CreateDirectory(directoryPath);
         }
 
-        if (!File.Exists(dbPath))
+        Debug.Log("Base de datos en: " + dbPath);
+        if (!File.Exists(dbPath)) File.Create(dbPath).Close();
+
+        using (IDbConnection dbConnection = new SqliteConnection("URI=file:" + dbPath))
         {
-            File.Create(dbPath).Close();
-            Debug.Log("Base de datos creada en: " + dbPath);
+            dbConnection.Open();
+            using (IDbCommand dbCommand = dbConnection.CreateCommand())
+            {
+                dbCommand.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS Usuarios (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                        usuario TEXT UNIQUE, 
+                        password TEXT
+                    );";
+                dbCommand.ExecuteNonQuery();
+            }
         }
-
-        string dbUri = "URI=file:" + dbPath;
-
-        IDbConnection dbConnection = new SqliteConnection(dbUri);
-        dbConnection.Open();
-
-        IDbCommand dbCommandCreateTable = dbConnection.CreateCommand();
-        dbCommandCreateTable.CommandText =
-            "CREATE TABLE IF NOT EXISTS Usuarios (" +
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-            "usuario TEXT, " +
-            "password TEXT CHECK (length(password) >= 8))";
-
-        dbCommandCreateTable.ExecuteNonQuery();
-
-        if (borrarDatosAlIniciar)
-        {
-            IDbCommand dbCommandDelete = dbConnection.CreateCommand();
-            dbCommandDelete.CommandText = "DELETE FROM Usuarios";
-            dbCommandDelete.ExecuteNonQuery();
-            dbCommandDelete.Dispose();
-            Debug.Log("Todos los usuarios han sido borrados");
-        }
-
-        dbCommandCreateTable.Dispose();
-        dbConnection.Close();
-
-        Debug.Log("Tabla Usuarios creada/actualizada correctamente");
     }
 }
